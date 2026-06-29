@@ -259,10 +259,13 @@ tr:hover td{background:#f7fafb;}
           </div>
           <div class="form-col">
             <label>Nama Murid</label>
-            <select id="inpMurid">
+            <select id="inpMurid" onchange="showKelompokInfo()">
               <option value="">-- Pilih Murid --</option>
             </select>
           </div>
+        </div>
+        <div id="kelompokInfo" style="display:none;margin-top:.75rem;padding:8px 12px;background:var(--gold-light);border-radius:var(--radius-sm);font-size:.83rem;color:var(--amber);">
+          <strong>Kelompok BTQ/Tahfidz:</strong> <span id="kelompokInfoText"></span>
         </div>
 
         <hr class="form-divider">
@@ -341,7 +344,7 @@ tr:hover td{background:#f7fafb;}
         <div class="table-wrap">
           <table>
             <thead><tr>
-              <th>Tanggal</th><th>Kelas</th><th>Murid</th>
+              <th>Tanggal</th><th>Kelas</th><th>Kelompok</th><th>Murid</th>
               <th>Nilai BTQ</th><th>Surah</th><th>Juz</th><th>Ayat</th><th>Nilai Tahfidz</th>
               <th></th>
             </tr></thead>
@@ -391,6 +394,7 @@ tr:hover td{background:#f7fafb;}
           <select id="adminFilterKelas" onchange="renderAdminRekap()">
             <option value="">Semua Kelas</option>
           </select>
+          <input type="text" id="adminFilterKelompok" placeholder="Cari kelompok..." oninput="renderAdminRekap()" style="max-width:150px;">
           <input type="month" id="adminFilterBulan" onchange="renderAdminRekap()">
           <input type="text" id="adminFilterMurid" placeholder="Cari murid..." oninput="renderAdminRekap()" style="max-width:160px;">
         </div>
@@ -448,7 +452,7 @@ tr:hover td{background:#f7fafb;}
       <!-- Tambah satu per satu -->
       <div class="card">
         <div class="card-title">➕ Tambah Murid Manual</div>
-        <div class="form-grid-2">
+        <div class="form-grid-3">
           <div class="form-col"><label>Nama Murid</label>
             <input type="text" id="addMuridNama" placeholder="Nama lengkap murid"></div>
           <div class="form-col"><label>Kelas</label>
@@ -456,6 +460,8 @@ tr:hover td{background:#f7fafb;}
               <option value="">-- Pilih Kelas --</option>
             </select>
           </div>
+          <div class="form-col"><label>Kelompok BTQ/Tahfidz</label>
+            <input type="text" id="addMuridKelompok" placeholder="Cth: Kelompok 1, Iqra, dsb"></div>
         </div>
         <button class="btn-submit" onclick="tambahMurid()">➕ Tambah Murid</button>
         <div class="success-msg" id="msgMurid"></div>
@@ -467,7 +473,7 @@ tr:hover td{background:#f7fafb;}
         <!-- template download -->
         <div style="background:var(--teal-light);border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:1rem;font-size:.85rem;color:var(--teal-dark);line-height:1.7;">
           <strong>Format Excel yang dibutuhkan:</strong><br>
-          Kolom A: <strong>Nama Murid</strong> &nbsp;|&nbsp; Kolom B: <strong>Kelas</strong> (harus sama persis dengan nama kelas yang sudah dibuat)<br>
+          Kolom A: <strong>Nama Murid</strong> &nbsp;|&nbsp; Kolom B: <strong>Kelas</strong> (harus sama persis) &nbsp;|&nbsp; Kolom C: <strong>Kelompok BTQ/Tahfidz</strong> (opsional)<br>
           Baris pertama adalah header, data mulai baris ke-2.
           <br><button onclick="downloadTemplate()" style="margin-top:8px;padding:5px 14px;background:var(--teal);color:#fff;border:none;border-radius:6px;font-size:.8rem;font-weight:700;cursor:pointer;">⬇️ Download Template Excel</button>
         </div>
@@ -498,7 +504,7 @@ tr:hover td{background:#f7fafb;}
           </div>
           <div class="table-wrap">
             <table>
-              <thead><tr><th>#</th><th>Nama Murid</th><th>Kelas</th><th>Status</th></tr></thead>
+              <thead><tr><th>#</th><th>Nama Murid</th><th>Kelas</th><th>Kelompok BTQ/Tahfidz</th><th>Status</th></tr></thead>
               <tbody id="importPreviewBody"></tbody>
             </table>
           </div>
@@ -513,6 +519,7 @@ tr:hover td{background:#f7fafb;}
           <select id="filterMuridKelas" onchange="renderMuridList()">
             <option value="">Semua Kelas</option>
           </select>
+          <input type="text" id="filterMuridKelompok" placeholder="Cari kelompok..." oninput="renderMuridList()" style="max-width:160px;">
           <input type="text" id="filterMuridCari" placeholder="Cari nama..." oninput="renderMuridList()" style="max-width:180px;">
         </div>
         <div id="muridList"></div>
@@ -660,11 +667,26 @@ function loadMuridByKelas() {
   const kid = document.getElementById('inpKelas').value;
   const sel = document.getElementById('inpMurid');
   sel.innerHTML = '<option value="">-- Pilih Murid --</option>';
+  document.getElementById('kelompokInfo').style.display='none';
   if (!kid) return;
   const list = Object.entries(db_murid)
     .filter(([,m])=>m.kelasId===kid)
-    .sort((a,b)=>a[1].nama.localeCompare(b[1].nama));
-  list.forEach(([mid,m]) => sel.innerHTML += `<option value="${mid}">${m.nama}</option>`);
+    .sort((a,b)=>{
+      const g=(a[1].kelompok||'').localeCompare(b[1].kelompok||'');
+      return g||a[1].nama.localeCompare(b[1].nama);
+    });
+  list.forEach(([mid,m]) => {
+    const label = m.kelompok ? `${m.nama} (${m.kelompok})` : m.nama;
+    sel.innerHTML += `<option value="${mid}">${label}</option>`;
+  });
+}
+
+function showKelompokInfo() {
+  const mid = document.getElementById('inpMurid').value;
+  const info = document.getElementById('kelompokInfo');
+  if (!mid || !db_murid[mid]?.kelompok) { info.style.display='none'; return; }
+  document.getElementById('kelompokInfoText').textContent = db_murid[mid].kelompok;
+  info.style.display='';
 }
 
 function populateFilterRiwayat() {
@@ -778,6 +800,7 @@ function renderRiwayat() {
   tbody.innerHTML=data.map(([lid,l])=>`<tr>
     <td>${fmtTgl(l.tanggal)}</td>
     <td><span class="kelas-pill">${getKelasNama(l.kelasId)}</span></td>
+    <td>${db_murid[l.muridId]?.kelompok ? `<span class="kelas-pill" style="background:var(--gold-light);color:var(--gold);">${db_murid[l.muridId].kelompok}</span>` : '<span style="color:#ccc">—</span>'}</td>
     <td>${getMuridNama(l.muridId)}</td>
     <td>${nilaiHtml(l.btqNilai)}</td>
     <td>${l.tahfidzSurah||'—'}</td>
@@ -796,15 +819,16 @@ async function hapusLaporan(lid) {
   hideLoad(); renderRiwayat(); renderGuruDashboard();
 }
 
-// ===== ADMIN REKAP =====
 function renderAdminRekap() {
   const kid=document.getElementById('adminFilterKelas').value;
   const bln=document.getElementById('adminFilterBulan').value;
   const cari=document.getElementById('adminFilterMurid').value.toLowerCase();
+  const cariKelompok=(document.getElementById('adminFilterKelompok')?.value||'').toLowerCase();
   let data=Object.entries(db_laporan);
   if (kid) data=data.filter(([,l])=>l.kelasId===kid);
   if (bln) data=data.filter(([,l])=>l.tanggal.startsWith(bln));
   if (cari) data=data.filter(([,l])=>getMuridNama(l.muridId).toLowerCase().includes(cari));
+  if (cariKelompok) data=data.filter(([,l])=>(db_murid[l.muridId]?.kelompok||'').toLowerCase().includes(cariKelompok));
   data.sort((a,b)=>b[1].tanggal.localeCompare(a[1].tanggal));
 
   const statsEl=document.getElementById('adminRekapStats');
@@ -824,11 +848,12 @@ function renderAdminRekap() {
   if (!data.length){bodyEl.innerHTML='<div class="empty"><div class="icon">📭</div><p>Belum ada laporan sesuai filter.</p></div>';return;}
 
   bodyEl.innerHTML=`<div class="table-wrap"><table>
-    <thead><tr><th>Tanggal</th><th>Kelas</th><th>Murid</th><th>Guru</th>
+    <thead><tr><th>Tanggal</th><th>Kelas</th><th>Kelompok</th><th>Murid</th><th>Guru</th>
     <th>Nilai BTQ</th><th>Catatan BTQ</th><th>Surah</th><th>Juz</th><th>Ayat</th><th>Nilai Tahfidz</th><th>Catatan Tahfidz</th></tr></thead>
     <tbody>${data.map(([,l])=>`<tr>
       <td>${fmtTgl(l.tanggal)}</td>
       <td><span class="kelas-pill">${getKelasNama(l.kelasId)}</span></td>
+      <td>${db_murid[l.muridId]?.kelompok ? `<span class="kelas-pill" style="background:var(--gold-light);color:var(--gold);">${db_murid[l.muridId].kelompok}</span>` : '<span style="color:#ccc">—</span>'}</td>
       <td>${getMuridNama(l.muridId)}</td>
       <td>${db_users[l.guruId]?.nama||l.guruId}</td>
       <td>${nilaiHtml(l.btqNilai)}</td>
@@ -849,13 +874,14 @@ function exportPDF() {
   let data=Object.entries(db_laporan);
   if (kid) data=data.filter(([,l])=>l.kelasId===kid);
   if (bln) data=data.filter(([,l])=>l.tanggal.startsWith(bln));
-  data.sort((a,b)=>{ const k=getKelasNama(a[1].kelasId).localeCompare(getKelasNama(b[1].kelasId)); return k||getMuridNama(a[1].muridId).localeCompare(getMuridNama(b[1].muridId))||b[1].tanggal.localeCompare(a[1].tanggal); });
+  data.sort((a,b)=>{ const k=getKelasNama(a[1].kelasId).localeCompare(getKelasNama(b[1].kelasId));
+    const g=(db_murid[a[1].muridId]?.kelompok||'').localeCompare(db_murid[b[1].muridId]?.kelompok||'');
+    return k||g||getMuridNama(a[1].muridId).localeCompare(getMuridNama(b[1].muridId))||b[1].tanggal.localeCompare(a[1].tanggal); });
 
   const { jsPDF }=window.jspdf;
   const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
   const PW=277;
 
-  // header
   doc.setFontSize(13);doc.setFont('helvetica','bold');doc.setTextColor(13,74,97);
   doc.text('Rekap Laporan BTQ & Tahfidz',PW/2+14,13,{align:'center'});
   doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(90,106,117);
@@ -866,8 +892,8 @@ function exportPDF() {
   doc.setDrawColor(201,151,43);doc.setLineWidth(.5);doc.line(14,28,291,28);
   doc.setLineWidth(.15);doc.setDrawColor(180);
 
-  const cols=[22,48,36,30,14,30,10,18,14];
-  const headers=['Tanggal','Murid','Kelas','Guru','BTQ','Surah Tahfidz','Juz','Ayat','Taf'];
+  const cols=[22,12,24,40,26,14,26,10,16,12];
+  const headers=['Tanggal','Kelas','Kelompok','Murid','Guru','BTQ','Surah Tahfidz','Juz','Ayat','Taf'];
   let y=34,cx=14;
   doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(90,106,117);
   headers.forEach((h,i)=>{
@@ -880,10 +906,12 @@ function exportPDF() {
   data.forEach(([,l])=>{
     if (y>190){doc.addPage({orientation:'landscape'});y=14;}
     cx=14;
+    const kelompok=(db_murid[l.muridId]?.kelompok||'-').substring(0,12);
     const row=[
-      fmtTgl(l.tanggal), getMuridNama(l.muridId).substring(0,22),
-      getKelasNama(l.kelasId), (db_users[l.guruId]?.nama||'').substring(0,18),
-      l.btqNilai||'-', (l.tahfidzSurah||'-').substring(0,18),
+      fmtTgl(l.tanggal), getKelasNama(l.kelasId), kelompok,
+      getMuridNama(l.muridId).substring(0,22),
+      (db_users[l.guruId]?.nama||'').substring(0,16),
+      l.btqNilai||'-', (l.tahfidzSurah||'-').substring(0,16),
       l.tahfidzJuz||'-', l.tahfidzAyat||'-', l.tahfidzNilai||'-'
     ];
     row.forEach((v,i)=>{
@@ -895,7 +923,6 @@ function exportPDF() {
     y+=6;
   });
 
-  // footer
   y+=4;
   doc.setFontSize(7.5);doc.setTextColor(130,130,130);
   doc.text(`Total: ${data.length} laporan  |  Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'})}`,14,y);
@@ -996,13 +1023,12 @@ function downloadTemplate() {
   const wb = XLSX.utils.book_new();
   const kelasList = Object.values(db_kelas).map(k=>k.nama).sort();
   const wsData = [
-    ['Nama Murid','Kelas'],
-    ['Contoh: Ahmad Fauzi','7A'],
-    ['Contoh: Siti Aisyah','7B'],
+    ['Nama Murid','Kelas','Kelompok BTQ/Tahfidz'],
+    ['Contoh: Ahmad Fauzi','7A','Kelompok 1'],
+    ['Contoh: Siti Aisyah','7B','Al-Quran'],
   ];
   const ws = XLSX.utils.aoa_to_sheet(wsData);
-  // set column widths
-  ws['!cols'] = [{wch:30},{wch:10}];
+  ws['!cols'] = [{wch:30},{wch:10},{wch:22}];
   // add kelas info as a note sheet
   const wsKelas = XLSX.utils.aoa_to_sheet([['Daftar Kelas yang Tersedia'],...kelasList.map(k=>[k])]);
   XLSX.utils.book_append_sheet(wb, ws, 'Data Murid');
@@ -1048,6 +1074,7 @@ function handleExcelFile(file) {
         const row = rows[i];
         const nama = String(row[0]||'').trim();
         const kelasNama = String(row[1]||'').trim();
+        const kelompok = String(row[2]||'').trim();
         if (!nama && !kelasNama) continue; // skip empty rows
         let valid = true, alasan = '';
         if (!nama) { valid=false; alasan='Nama kosong'; }
@@ -1057,11 +1084,11 @@ function handleExcelFile(file) {
           if (!kid) { valid=false; alasan=`Kelas "${kelasNama}" tidak ditemukan`; }
           else if (existing.has(`${nama.toLowerCase()}|${kid}`)) { valid=false; alasan='Murid sudah ada'; }
           else {
-            importData.push({nama, kelasNama, kelasId:kid, valid:true, alasan:''});
+            importData.push({nama, kelasNama, kelasId:kid, kelompok, valid:true, alasan:''});
             continue;
           }
         }
-        importData.push({nama:nama||'—', kelasNama:kelasNama||'—', kelasId:'', valid, alasan});
+        importData.push({nama:nama||'—', kelasNama:kelasNama||'—', kelasId:'', kelompok, valid, alasan});
       }
 
       showImportPreview();
@@ -1082,6 +1109,7 @@ function showImportPreview() {
       <td style="color:var(--text-muted)">${i+1}</td>
       <td>${d.nama}</td>
       <td>${d.kelasNama}</td>
+      <td>${d.kelompok||'<span style="color:#ccc">—</span>'}</td>
       <td>${d.valid
         ? '<span style="color:var(--green);font-weight:700;">✓ Siap</span>'
         : `<span style="color:var(--red);font-size:.78rem;">${d.alasan}</span>`}</td>
@@ -1102,8 +1130,8 @@ async function konfirmasiImport() {
   try {
     let count = 0;
     for (const d of valid) {
-      const newRef = await push(ref(db,'btq_murid'), {nama:d.nama, kelasId:d.kelasId});
-      db_murid[newRef.key] = {nama:d.nama, kelasId:d.kelasId};
+      const newRef = await push(ref(db,'btq_murid'), {nama:d.nama, kelasId:d.kelasId, kelompok:d.kelompok||''});
+      db_murid[newRef.key] = {nama:d.nama, kelasId:d.kelasId, kelompok:d.kelompok||''};
       count++;
     }
     hideLoad();
@@ -1125,34 +1153,46 @@ async function konfirmasiImport() {
 async function tambahMurid() {
   const nama=document.getElementById('addMuridNama').value.trim();
   const kid=document.getElementById('addMuridKelas').value;
+  const kelompok=document.getElementById('addMuridKelompok').value.trim();
   const msg=document.getElementById('msgMurid');
   if (!nama||!kid){msg.style.color='var(--red)';msg.textContent='⚠️ Nama dan kelas wajib diisi.';return;}
   showLoad('Menambahkan murid...');
-  const newRef=await push(ref(db,'btq_murid'),{nama,kelasId:kid});
-  db_murid[newRef.key]={nama,kelasId:kid};
+  const newRef=await push(ref(db,'btq_murid'),{nama,kelasId:kid,kelompok:kelompok||''});
+  db_murid[newRef.key]={nama,kelasId:kid,kelompok:kelompok||''};
   hideLoad();
   msg.style.color='var(--green)';msg.textContent=`✅ Murid "${nama}" berhasil ditambahkan.`;
   document.getElementById('addMuridNama').value='';
+  document.getElementById('addMuridKelompok').value='';
   setTimeout(()=>msg.textContent='',3000);
   renderMuridList();
 }
 
 function renderMuridList() {
   const kid=document.getElementById('filterMuridKelas').value;
+  const cariKelompok=(document.getElementById('filterMuridKelompok')?.value||'').toLowerCase();
+  const cariNama=(document.getElementById('filterMuridCari')?.value||'').toLowerCase();
   const el=document.getElementById('muridList');
   let list=Object.entries(db_murid);
   if (kid) list=list.filter(([,m])=>m.kelasId===kid);
+  if (cariKelompok) list=list.filter(([,m])=>(m.kelompok||'').toLowerCase().includes(cariKelompok));
+  if (cariNama) list=list.filter(([,m])=>m.nama.toLowerCase().includes(cariNama));
   list.sort((a,b)=>{
     const k=getKelasNama(a[1].kelasId).localeCompare(getKelasNama(b[1].kelasId));
-    return k||a[1].nama.localeCompare(b[1].nama);
+    const g=(a[1].kelompok||'').localeCompare(b[1].kelompok||'');
+    return k||g||a[1].nama.localeCompare(b[1].nama);
   });
   if (!list.length){el.innerHTML='<div class="empty"><div class="icon">🎓</div><p>Belum ada murid.</p></div>';return;}
   el.innerHTML=`<div class="table-wrap"><table>
-    <thead><tr><th>Nama Murid</th><th>Kelas</th><th>Jumlah Laporan</th><th></th></tr></thead>
+    <thead><tr><th>Nama Murid</th><th>Kelas</th><th>Kelompok BTQ/Tahfidz</th><th>Jumlah Laporan</th><th></th></tr></thead>
     <tbody>${list.map(([mid,m])=>{
       const jLap=Object.values(db_laporan).filter(l=>l.muridId===mid).length;
-      return `<tr><td>${m.nama}</td><td><span class="kelas-pill">${getKelasNama(m.kelasId)}</span></td>
-      <td>${jLap}</td><td><button class="btn-del" onclick="hapusMurid('${mid}')">🗑️</button></td></tr>`;
+      return `<tr>
+        <td>${m.nama}</td>
+        <td><span class="kelas-pill">${getKelasNama(m.kelasId)}</span></td>
+        <td>${m.kelompok ? `<span class="kelas-pill" style="background:var(--gold-light);color:var(--gold);">${m.kelompok}</span>` : '<span style="color:#ccc">—</span>'}</td>
+        <td>${jLap}</td>
+        <td><button class="btn-del" onclick="hapusMurid('${mid}')">🗑️</button></td>
+      </tr>`;
     }).join('')}</tbody>
   </table></div>`;
 }
@@ -1189,7 +1229,7 @@ function adminTab(name,btn) {
 // ===== EXPOSE GLOBALS =====
 Object.assign(window,{
   doLogin,doLogout,
-  loadMuridByKelas,simpanLaporan,renderRiwayat,hapusLaporan,
+  loadMuridByKelas,showKelompokInfo,simpanLaporan,renderRiwayat,hapusLaporan,
   renderAdminRekap,exportPDF,
   tambahGuru,hapusGuru,
   tambahKelas,hapusKelas,
