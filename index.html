@@ -387,10 +387,9 @@ tr:hover td{background:#f7fafb;}
       <div class="card">
         <div class="card-title" style="justify-content:space-between;flex-wrap:wrap;gap:8px;">
           <span>📊 Rekap Laporan BTQ &amp; Tahfidz</span>
-          <button class="btn-export" onclick="exportPDF()">⬇️ Export PDF</button>
         </div>
         <div class="filter-row">
-          <span class="filter-label">Filter:</span>
+          <span class="filter-label">Filter Rekap:</span>
           <select id="adminFilterKelas" onchange="renderAdminRekap()">
             <option value="">Semua Kelas</option>
           </select>
@@ -400,6 +399,31 @@ tr:hover td{background:#f7fafb;}
         </div>
         <div id="adminRekapStats" class="stats-grid" style="display:none;"></div>
         <div id="adminRekapBody"></div>
+
+        <!-- PDF EXPORT PANEL -->
+        <hr class="form-divider">
+        <div class="section-label">⬇️ Export PDF Rekap Ringkasan</div>
+        <div style="background:var(--teal-light);border-radius:var(--radius-sm);padding:.9rem 1rem;margin-bottom:1rem;font-size:.82rem;color:var(--teal-dark);line-height:1.7;">
+          PDF akan menampilkan <strong>1 baris per murid</strong> berisi rata-rata BTQ, semua surah yang dihafal, juz, total juz, ayat terakhir, dan rata-rata Tahfidz dalam periode yang dipilih.
+        </div>
+        <div class="filter-row" style="flex-wrap:wrap;gap:10px;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span class="filter-label">Kelas:</span>
+            <select id="pdfKelas" style="padding:6px 11px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:.85rem;background:var(--gray-light);color:var(--text);outline:none;font-family:inherit;">
+              <option value="">-- Pilih Kelas --</option>
+            </select>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span class="filter-label">Dari:</span>
+            <input type="date" id="pdfDari" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:.85rem;background:var(--gray-light);color:var(--text);outline:none;font-family:inherit;">
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span class="filter-label">Sampai:</span>
+            <input type="date" id="pdfSampai" style="padding:6px 10px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:.85rem;background:var(--gray-light);color:var(--text);outline:none;font-family:inherit;">
+          </div>
+          <button class="btn-export" onclick="exportPDF()">⬇️ Export PDF</button>
+        </div>
+        <div class="success-msg" id="msgExport"></div>
       </div>
     </div>
 
@@ -869,65 +893,217 @@ function renderAdminRekap() {
 
 // ===== EXPORT PDF =====
 function exportPDF() {
-  const kid=document.getElementById('adminFilterKelas').value;
-  const bln=document.getElementById('adminFilterBulan').value;
-  let data=Object.entries(db_laporan);
-  if (kid) data=data.filter(([,l])=>l.kelasId===kid);
-  if (bln) data=data.filter(([,l])=>l.tanggal.startsWith(bln));
-  data.sort((a,b)=>{ const k=getKelasNama(a[1].kelasId).localeCompare(getKelasNama(b[1].kelasId));
-    const g=(db_murid[a[1].muridId]?.kelompok||'').localeCompare(db_murid[b[1].muridId]?.kelompok||'');
-    return k||g||getMuridNama(a[1].muridId).localeCompare(getMuridNama(b[1].muridId))||b[1].tanggal.localeCompare(a[1].tanggal); });
+  const kid   = document.getElementById('pdfKelas').value;
+  const dari  = document.getElementById('pdfDari').value;
+  const sampai= document.getElementById('pdfSampai').value;
+  const msg   = document.getElementById('msgExport');
 
-  const { jsPDF }=window.jspdf;
-  const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
-  const PW=277;
+  if (!kid)           { msg.style.color='var(--red)'; msg.textContent='⚠️ Pilih kelas terlebih dahulu.'; return; }
+  if (!dari||!sampai) { msg.style.color='var(--red)'; msg.textContent='⚠️ Pilih rentang tanggal.'; return; }
+  if (dari>sampai)    { msg.style.color='var(--red)'; msg.textContent='⚠️ Tanggal mulai tidak boleh lebih besar dari tanggal selesai.'; return; }
+  msg.textContent='';
 
-  doc.setFontSize(13);doc.setFont('helvetica','bold');doc.setTextColor(13,74,97);
-  doc.text('Rekap Laporan BTQ & Tahfidz',PW/2+14,13,{align:'center'});
-  doc.setFontSize(9);doc.setFont('helvetica','normal');doc.setTextColor(90,106,117);
-  doc.text('SMP Muhammadiyah 7 Surabaya',PW/2+14,19,{align:'center'});
-  const periodeLabel=bln ? new Date(bln+'-01').toLocaleDateString('id-ID',{month:'long',year:'numeric'}) : 'Semua Periode';
-  const kelasLabel=kid ? `Kelas ${getKelasNama(kid)}` : 'Semua Kelas';
-  doc.text(`${kelasLabel}  |  Periode: ${periodeLabel}`,PW/2+14,25,{align:'center'});
-  doc.setDrawColor(201,151,43);doc.setLineWidth(.5);doc.line(14,28,291,28);
-  doc.setLineWidth(.15);doc.setDrawColor(180);
+  // ---- Helpers ----
+  function modus(arr) {
+    const clean = arr.filter(Boolean);
+    if (!clean.length) return '-';
+    const freq={};
+    clean.forEach(v=>freq[v]=(freq[v]||0)+1);
+    return Object.entries(freq).sort((a,b)=>b[1]-a[1])[0][0];
+  }
+  function labelNilai(n) {
+    if (n==='A') return 'A (90–100)';
+    if (n==='B') return 'B (75–89)';
+    if (n==='C') return 'C (60–74)';
+    if (n==='D') return 'D (<60)';
+    return '-';
+  }
+  function nilaiColor(n) {
+    if (n==='A') return [22,101,64];
+    if (n==='B') return [30,80,170];
+    if (n==='C') return [150,100,15];
+    if (n==='D') return [190,45,45];
+    return [80,80,80];
+  }
+  const fmtD = s => new Date(s+'T00:00:00').toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'});
 
-  const cols=[22,12,24,40,26,14,26,10,16,12];
-  const headers=['Tanggal','Kelas','Kelompok','Murid','Guru','BTQ','Surah Tahfidz','Juz','Ayat','Taf'];
-  let y=34,cx=14;
-  doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(90,106,117);
-  headers.forEach((h,i)=>{
-    doc.rect(cx,y,cols[i],6);
-    doc.text(h,cx+cols[i]/2,y+4,{align:'center'});
+  // ---- Ambil & urutkan murid ----
+  const muridKelas = Object.entries(db_murid)
+    .filter(([,m])=>m.kelasId===kid)
+    .sort((a,b)=>{
+      const g=(a[1].kelompok||'').localeCompare(b[1].kelompok||'');
+      return g||a[1].nama.localeCompare(b[1].nama);
+    });
+
+  if (!muridKelas.length) {
+    msg.style.color='var(--red)'; msg.textContent='⚠️ Tidak ada murid di kelas ini.'; return;
+  }
+
+  // ---- Hitung rekap per murid ----
+  const rows = muridKelas.map(([mid,m], idx) => {
+    const laps = Object.values(db_laporan)
+      .filter(l=>l.muridId===mid && l.tanggal>=dari && l.tanggal<=sampai)
+      .sort((a,b)=>a.tanggal.localeCompare(b.tanggal));
+
+    if (!laps.length) return {idx:idx+1, nama:m.nama, kelompok:m.kelompok||'-', empty:true};
+
+    // BTQ modus
+    const modBtq = modus(laps.map(l=>l.btqNilai));
+
+    // Surah unik urut kemunculan
+    const surahSeen=new Set(), surahList=[];
+    laps.forEach(l=>{ const s=(l.tahfidzSurah||'').trim(); if(s&&!surahSeen.has(s)){surahSeen.add(s);surahList.push(s);} });
+
+    // Juz unik urut kemunculan
+    const juzSeen=new Set(), juzList=[];
+    laps.forEach(l=>{ const j=String(l.tahfidzJuz||'').trim(); if(j&&!juzSeen.has(j)){juzSeen.add(j);juzList.push(j);} });
+
+    // Ayat terakhir dari setoran terakhir yang ada tahfidz
+    const lastTaf=[...laps].reverse().find(l=>l.tahfidzSurah||l.tahfidzAyat);
+    const ayatTerakhir = lastTaf
+      ? (lastTaf.tahfidzSurah||'') + (lastTaf.tahfidzAyat ? ` : ${lastTaf.tahfidzAyat}` : '')
+      : '-';
+
+    // Tahfidz modus
+    const modTaf = modus(laps.map(l=>l.tahfidzNilai));
+
+    return {
+      idx:idx+1, nama:m.nama, kelompok:m.kelompok||'-', empty:false,
+      jmlSetoran:laps.length,
+      modBtq, surahList, juzList,
+      totalJuz: juzList.length>0 ? `${juzList.length} Juz` : '-',
+      juzStr: juzList.join(', ')||'-',
+      surahStr: surahList.join(', ')||'-',
+      ayatTerakhir, modTaf
+    };
+  });
+
+  // ---- Build PDF ----
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({orientation:'landscape', unit:'mm', format:'a4'});
+  const PW=277, PH=195, LEFT=10;
+
+  const periodeLabel=`${fmtD(dari)} – ${fmtD(sampai)}`;
+  const kelasLabel=`Kelas ${db_kelas[kid]?.nama||kid}`;
+
+  // ---- HEADER ----
+  doc.setFontSize(13); doc.setFont('helvetica','bold'); doc.setTextColor(13,74,97);
+  doc.text('Rekap BTQ & Tahfidz — Ringkasan Per Murid', PW/2+LEFT, 12, {align:'center'});
+  doc.setFontSize(9.5); doc.setFont('helvetica','normal'); doc.setTextColor(60,80,90);
+  doc.text('SMP Muhammadiyah 7 Surabaya', PW/2+LEFT, 18, {align:'center'});
+  doc.setFontSize(8.5);
+  doc.text(`${kelasLabel}     Periode: ${periodeLabel}`, PW/2+LEFT, 24, {align:'center'});
+  // gold line
+  doc.setDrawColor(201,151,43); doc.setLineWidth(.6); doc.line(LEFT,27,LEFT+PW,27);
+  doc.setLineWidth(.2); doc.setDrawColor(190,190,190);
+
+  // ---- KOLOM ----
+  // No|Nama Murid|Kelompok|Setoran|Rata-rata BTQ|Surah Dihafal|Juz|Total Juz|Ayat Terakhir|Rata-rata Tahfidz
+  const cols  = [7,   46,  25,   13,    22,          58,         20,    14,       34,           22];
+  const hdrs  = ['No','Nama Murid','Kelompok','Setoran','Rata-rata BTQ','Surah Dihafal','Juz','Total Juz','Ayat Terakhir','Rata-rata Tahfidz'];
+  const TOTAL_W = cols.reduce((s,c)=>s+c,0);
+  const HDR_H = 9;
+  const LINE_H = 4.2; // per line height in dynamic rows
+  const MIN_ROW = 8;
+  const FS_HDR = 7, FS_DATA = 6.8;
+
+  // cell drawing with multi-line support
+  function drawCell(x,y,w,h,text,opts={}) {
+    // fill
+    if (opts.fill) { doc.setFillColor(...opts.fill); doc.rect(x,y,w,h,'F'); }
+    doc.setDrawColor(190,190,190); doc.setLineWidth(.15); doc.rect(x,y,w,h);
+    if (text===null||text===undefined||text==='') return;
+    doc.setFontSize(opts.fs||FS_DATA);
+    doc.setFont('helvetica', opts.bold?'bold':'normal');
+    doc.setTextColor(...(opts.color||[28,43,53]));
+    const maxW = w - (opts.center?2:3.5);
+    const lines = doc.splitTextToSize(String(text), maxW);
+    const lh = (opts.fs||FS_DATA)*0.45;
+    const blockH = lines.length*lh;
+    const startY = y + (h-blockH)/2 + lh;
+    lines.forEach((ln,li)=>{
+      const tx = opts.center ? x+w/2 : x+1.8;
+      doc.text(ln, tx, startY+li*lh, {align:opts.center?'center':'left'});
+    });
+  }
+
+  // compute row height based on longest wrapped content
+  function rowHeight(r) {
+    if (r.empty) return MIN_ROW;
+    const tmpFS = FS_DATA;
+    // surah col width = cols[5]=58, juz col=cols[6]=20
+    const surahLines = doc.splitTextToSize(r.surahStr, cols[5]-3.5).length;
+    const juzLines   = doc.splitTextToSize(r.juzStr,   cols[6]-3.5).length;
+    const ayatLines  = doc.splitTextToSize(r.ayatTerakhir, cols[8]-3.5).length;
+    const maxLines   = Math.max(surahLines, juzLines, ayatLines, 1);
+    return Math.max(MIN_ROW, maxLines*LINE_H + 2);
+  }
+
+  // ---- DRAW HEADER ----
+  let y=30, cx=LEFT;
+  doc.setFillColor(218,237,245);
+  doc.rect(cx,y,TOTAL_W,HDR_H,'F');
+  hdrs.forEach((h,i)=>{
+    drawCell(cx,y,cols[i],HDR_H,h,{bold:true,center:true,fs:FS_HDR,color:[13,74,97]});
     cx+=cols[i];
   });
-  y+=6;
-  doc.setFont('helvetica','normal');doc.setTextColor(28,43,53);
-  data.forEach(([,l])=>{
-    if (y>190){doc.addPage({orientation:'landscape'});y=14;}
-    cx=14;
-    const kelompok=(db_murid[l.muridId]?.kelompok||'-').substring(0,12);
-    const row=[
-      fmtTgl(l.tanggal), getKelasNama(l.kelasId), kelompok,
-      getMuridNama(l.muridId).substring(0,22),
-      (db_users[l.guruId]?.nama||'').substring(0,16),
-      l.btqNilai||'-', (l.tahfidzSurah||'-').substring(0,16),
-      l.tahfidzJuz||'-', l.tahfidzAyat||'-', l.tahfidzNilai||'-'
-    ];
-    row.forEach((v,i)=>{
-      doc.setFontSize(7);
-      doc.rect(cx,y,cols[i],6);
-      doc.text(String(v),cx+1.5,y+4,{maxWidth:cols[i]-2});
-      cx+=cols[i];
-    });
-    y+=6;
+  y+=HDR_H;
+
+  // ---- DRAW DATA ROWS ----
+  rows.forEach((r,ri)=>{
+    const rh = rowHeight(r);
+    if (y+rh>PH) { doc.addPage({orientation:'landscape'}); y=14; }
+    cx=LEFT;
+    const fill = ri%2===0 ? [252,252,252] : [245,250,253];
+
+    if (r.empty) {
+      const empData = [r.idx,r.nama,r.kelompok,'0','-','-','-','-','-','-'];
+      empData.forEach((v,i)=>{
+        drawCell(cx,y,cols[i],rh,v,{center:i===0||i===3,fs:FS_DATA,fill,color:i===3?[190,60,60]:[100,100,100]});
+        cx+=cols[i];
+      });
+    } else {
+      const cells=[
+        {v:String(r.idx),        center:true},
+        {v:r.nama,               center:false},
+        {v:r.kelompok,           center:true},
+        {v:String(r.jmlSetoran), center:true, color:[13,74,97]},
+        {v:labelNilai(r.modBtq), center:true, color:nilaiColor(r.modBtq), bold:true},
+        {v:r.surahStr,           center:false},
+        {v:r.juzStr,             center:false},
+        {v:r.totalJuz,           center:true, color:[13,74,97], bold:true},
+        {v:r.ayatTerakhir,       center:false},
+        {v:labelNilai(r.modTaf), center:true, color:nilaiColor(r.modTaf), bold:true},
+      ];
+      cells.forEach((d,i)=>{
+        drawCell(cx,y,cols[i],rh,d.v,{center:d.center,fs:FS_DATA,fill,color:d.color,bold:d.bold});
+        cx+=cols[i];
+      });
+    }
+    y+=rh;
   });
 
-  y+=4;
-  doc.setFontSize(7.5);doc.setTextColor(130,130,130);
-  doc.text(`Total: ${data.length} laporan  |  Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'})}`,14,y);
-  doc.save(`laporan-btq-tahfidz-${bln||'semua'}.pdf`);
+  // ---- KETERANGAN NILAI ----
+  y+=5;
+  if (y>PH-16) { doc.addPage({orientation:'landscape'}); y=14; }
+  doc.setDrawColor(201,151,43); doc.setLineWidth(.4); doc.line(LEFT,y,LEFT+TOTAL_W,y); y+=4;
+  doc.setFontSize(7); doc.setTextColor(100,100,100); doc.setFont('helvetica','italic');
+  doc.text('Keterangan Nilai (Modus — nilai yang paling sering muncul dalam periode):', LEFT, y); y+=4;
+  doc.setFont('helvetica','normal');
+  doc.text('A = Sangat Baik (90–100)     B = Baik (75–89)     C = Cukup (60–74)     D = Perlu Bimbingan (<60)', LEFT, y); y+=4;
+  doc.text('Surah Dihafal: diurutkan sesuai urutan setoran.  Ayat Terakhir: diambil dari setoran terakhir dalam periode.', LEFT, y); y+=5;
+
+  // ---- RINGKASAN BAWAH ----
+  const totalSetoran = rows.reduce((s,r)=>s+(r.jmlSetoran||0),0);
+  const muridAktif   = rows.filter(r=>!r.empty).length;
+  doc.setFontSize(7.5); doc.setTextColor(40,60,70); doc.setFont('helvetica','bold');
+  doc.text(`Total Murid: ${rows.length}   |   Murid Aktif: ${muridAktif}   |   Total Setoran: ${totalSetoran}   |   Dicetak: ${new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'})}`, LEFT, y);
+
+  const fn=`rekap-btq-tahfidz-${db_kelas[kid]?.nama||kid}-${dari}-sd-${sampai}.pdf`;
+  doc.save(fn);
 }
+
+
 
 // ===== KELOLA GURU =====
 async function tambahGuru() {
