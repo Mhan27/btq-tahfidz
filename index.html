@@ -332,7 +332,10 @@ tr:hover td{background:#f7fafb;}
     <!-- RIWAYAT GURU -->
     <div id="gtab-riwayat" style="display:none;">
       <div class="card">
-        <div class="card-title">📋 Riwayat Laporan</div>
+        <div class="card-title" style="justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <span>📋 Riwayat Laporan</span>
+          <button class="btn-export" id="btnHapusTerpilihGuru" style="display:none;background:var(--red-light);color:var(--red);border-color:rgba(226,75,74,.25);" onclick="hapusTerpilihGuru()">🗑️ Hapus Murid Terpilih (<span id="countTerpilihGuru">0</span>)</button>
+        </div>
         <div class="filter-row">
           <span class="filter-label">Filter:</span>
           <select id="filterRiwayatKelas" onchange="renderRiwayat()">
@@ -344,6 +347,7 @@ tr:hover td{background:#f7fafb;}
         <div class="table-wrap">
           <table>
             <thead><tr>
+              <th style="width:30px;"><input type="checkbox" id="checkAllGuru" onchange="toggleAllGuru(this)"></th>
               <th>Tanggal</th><th>Kelas</th><th>Kelompok</th><th>Murid</th>
               <th>Nilai BTQ</th><th>Surah</th><th>Juz</th><th>Ayat</th><th>Nilai Tahfidz</th>
               <th></th>
@@ -387,6 +391,7 @@ tr:hover td{background:#f7fafb;}
       <div class="card">
         <div class="card-title" style="justify-content:space-between;flex-wrap:wrap;gap:8px;">
           <span>📊 Rekap Laporan BTQ &amp; Tahfidz</span>
+          <button class="btn-export" id="btnHapusTerpilihAdmin" style="display:none;background:var(--red-light);color:var(--red);border-color:rgba(226,75,74,.25);" onclick="hapusTerpilihAdmin()">🗑️ Hapus Murid Terpilih (<span id="countTerpilihAdmin">0</span>)</button>
         </div>
         <div class="filter-row">
           <span class="filter-label">Filter Rekap:</span>
@@ -808,6 +813,8 @@ async function simpanLaporan() {
 }
 
 // ===== RIWAYAT GURU =====
+let selectedMuridGuru = new Set();
+
 function renderRiwayat() {
   const kid=document.getElementById('filterRiwayatKelas').value;
   const cari=document.getElementById('filterRiwayatMurid').value.toLowerCase();
@@ -819,9 +826,14 @@ function renderRiwayat() {
   data.sort((a,b)=>b[1].tanggal.localeCompare(a[1].tanggal));
   const tbody=document.getElementById('riwayatBody');
   const empty=document.getElementById('emptyRiwayat');
+  // clean up selection: keep only murid still visible
+  const visibleMuridIds = new Set(data.map(([,l])=>l.muridId));
+  selectedMuridGuru = new Set([...selectedMuridGuru].filter(mid=>visibleMuridIds.has(mid)));
+  updateBulkDeleteGuruUI();
   if (!data.length){tbody.innerHTML='';empty.style.display='';return;}
   empty.style.display='none';
   tbody.innerHTML=data.map(([lid,l])=>`<tr>
+    <td><input type="checkbox" class="chkMuridGuru" data-mid="${l.muridId}" ${selectedMuridGuru.has(l.muridId)?'checked':''} onchange="toggleMuridGuru('${l.muridId}',this.checked)"></td>
     <td>${fmtTgl(l.tanggal)}</td>
     <td><span class="kelas-pill">${getKelasNama(l.kelasId)}</span></td>
     <td>${db_murid[l.muridId]?.kelompok ? `<span class="kelas-pill" style="background:var(--gold-light);color:var(--gold);">${db_murid[l.muridId].kelompok}</span>` : '<span style="color:#ccc">—</span>'}</td>
@@ -835,6 +847,51 @@ function renderRiwayat() {
   </tr>`).join('');
 }
 
+function toggleMuridGuru(mid, checked) {
+  if (checked) selectedMuridGuru.add(mid); else selectedMuridGuru.delete(mid);
+  // sync all checkboxes for this murid (since 1 murid can have multiple rows)
+  document.querySelectorAll(`.chkMuridGuru[data-mid="${mid}"]`).forEach(c=>c.checked=checked);
+  updateBulkDeleteGuruUI();
+}
+
+function toggleAllGuru(masterChk) {
+  const checked = masterChk.checked;
+  document.querySelectorAll('.chkMuridGuru').forEach(c=>{
+    c.checked = checked;
+    const mid = c.dataset.mid;
+    if (checked) selectedMuridGuru.add(mid); else selectedMuridGuru.delete(mid);
+  });
+  updateBulkDeleteGuruUI();
+}
+
+function updateBulkDeleteGuruUI() {
+  const btn = document.getElementById('btnHapusTerpilihGuru');
+  const count = document.getElementById('countTerpilihGuru');
+  if (selectedMuridGuru.size > 0) {
+    btn.style.display = '';
+    count.textContent = selectedMuridGuru.size;
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+async function hapusTerpilihGuru() {
+  if (!selectedMuridGuru.size) return;
+  const namaList = [...selectedMuridGuru].map(mid=>getMuridNama(mid)).join(', ');
+  if (!confirm(`Hapus SEMUA laporan dari ${selectedMuridGuru.size} murid berikut?\n\n${namaList}\n\nTindakan ini tidak dapat dibatalkan.`)) return;
+  showLoad('Menghapus laporan terpilih...');
+  const lidsToDelete = Object.entries(db_laporan)
+    .filter(([,l]) => l.guruId===me && selectedMuridGuru.has(l.muridId))
+    .map(([lid])=>lid);
+  for (const lid of lidsToDelete) {
+    await remove(ref(db, `btq_laporan/${lid}`));
+    delete db_laporan[lid];
+  }
+  selectedMuridGuru.clear();
+  hideLoad();
+  renderRiwayat(); renderGuruDashboard();
+}
+
 async function hapusLaporan(lid) {
   if (!confirm('Hapus laporan ini?')) return;
   showLoad('Menghapus...');
@@ -842,6 +899,8 @@ async function hapusLaporan(lid) {
   delete db_laporan[lid];
   hideLoad(); renderRiwayat(); renderGuruDashboard();
 }
+
+let selectedMuridAdmin = new Set();
 
 function renderAdminRekap() {
   const kid=document.getElementById('adminFilterKelas').value;
@@ -869,12 +928,20 @@ function renderAdminRekap() {
     <div class="stat-card"><div class="stat-label">Perlu Bimbingan</div><div class="stat-value" style="color:var(--red)">${nilaiCount.D||0}</div></div>
   `;
 
+  // clean up selection: keep only murid still visible
+  const visibleMuridIds = new Set(data.map(([,l])=>l.muridId));
+  selectedMuridAdmin = new Set([...selectedMuridAdmin].filter(mid=>visibleMuridIds.has(mid)));
+  updateBulkDeleteAdminUI();
+
   if (!data.length){bodyEl.innerHTML='<div class="empty"><div class="icon">📭</div><p>Belum ada laporan sesuai filter.</p></div>';return;}
 
   bodyEl.innerHTML=`<div class="table-wrap"><table>
-    <thead><tr><th>Tanggal</th><th>Kelas</th><th>Kelompok</th><th>Murid</th><th>Guru</th>
+    <thead><tr>
+    <th style="width:30px;"><input type="checkbox" id="checkAllAdmin" onchange="toggleAllAdmin(this)"></th>
+    <th>Tanggal</th><th>Kelas</th><th>Kelompok</th><th>Murid</th><th>Guru</th>
     <th>Nilai BTQ</th><th>Catatan BTQ</th><th>Surah</th><th>Juz</th><th>Ayat</th><th>Nilai Tahfidz</th><th>Catatan Tahfidz</th></tr></thead>
-    <tbody>${data.map(([,l])=>`<tr>
+    <tbody>${data.map(([lid,l])=>`<tr>
+      <td><input type="checkbox" class="chkMuridAdmin" data-mid="${l.muridId}" ${selectedMuridAdmin.has(l.muridId)?'checked':''} onchange="toggleMuridAdmin('${l.muridId}',this.checked)"></td>
       <td>${fmtTgl(l.tanggal)}</td>
       <td><span class="kelas-pill">${getKelasNama(l.kelasId)}</span></td>
       <td>${db_murid[l.muridId]?.kelompok ? `<span class="kelas-pill" style="background:var(--gold-light);color:var(--gold);">${db_murid[l.muridId].kelompok}</span>` : '<span style="color:#ccc">—</span>'}</td>
@@ -889,6 +956,50 @@ function renderAdminRekap() {
       <td style="font-size:.8rem;color:var(--text-muted)">${l.tahfidzCatatan||'—'}</td>
     </tr>`).join('')}</tbody>
   </table></div>`;
+}
+
+function toggleMuridAdmin(mid, checked) {
+  if (checked) selectedMuridAdmin.add(mid); else selectedMuridAdmin.delete(mid);
+  document.querySelectorAll(`.chkMuridAdmin[data-mid="${mid}"]`).forEach(c=>c.checked=checked);
+  updateBulkDeleteAdminUI();
+}
+
+function toggleAllAdmin(masterChk) {
+  const checked = masterChk.checked;
+  document.querySelectorAll('.chkMuridAdmin').forEach(c=>{
+    c.checked = checked;
+    const mid = c.dataset.mid;
+    if (checked) selectedMuridAdmin.add(mid); else selectedMuridAdmin.delete(mid);
+  });
+  updateBulkDeleteAdminUI();
+}
+
+function updateBulkDeleteAdminUI() {
+  const btn = document.getElementById('btnHapusTerpilihAdmin');
+  const count = document.getElementById('countTerpilihAdmin');
+  if (selectedMuridAdmin.size > 0) {
+    btn.style.display = '';
+    count.textContent = selectedMuridAdmin.size;
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+async function hapusTerpilihAdmin() {
+  if (!selectedMuridAdmin.size) return;
+  const namaList = [...selectedMuridAdmin].map(mid=>getMuridNama(mid)).join(', ');
+  if (!confirm(`Hapus SEMUA laporan dari ${selectedMuridAdmin.size} murid berikut?\n\n${namaList}\n\nTindakan ini tidak dapat dibatalkan.`)) return;
+  showLoad('Menghapus laporan terpilih...');
+  const lidsToDelete = Object.entries(db_laporan)
+    .filter(([,l]) => selectedMuridAdmin.has(l.muridId))
+    .map(([lid])=>lid);
+  for (const lid of lidsToDelete) {
+    await remove(ref(db, `btq_laporan/${lid}`));
+    delete db_laporan[lid];
+  }
+  selectedMuridAdmin.clear();
+  hideLoad();
+  renderAdminRekap();
 }
 
 // ===== EXPORT PDF =====
@@ -1406,7 +1517,9 @@ function adminTab(name,btn) {
 Object.assign(window,{
   doLogin,doLogout,
   loadMuridByKelas,showKelompokInfo,simpanLaporan,renderRiwayat,hapusLaporan,
+  toggleMuridGuru,toggleAllGuru,hapusTerpilihGuru,
   renderAdminRekap,exportPDF,
+  toggleMuridAdmin,toggleAllAdmin,hapusTerpilihAdmin,
   tambahGuru,hapusGuru,
   tambahKelas,hapusKelas,
   tambahMurid,hapusMurid,renderMuridList,
