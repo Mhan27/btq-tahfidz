@@ -726,9 +726,11 @@ function populateFilterRiwayat() {
 }
 
 function populateAdminFilters() {
-  ['adminFilterKelas'].forEach(id => {
+  ['adminFilterKelas','pdfKelas'].forEach(id => {
     const sel = document.getElementById(id);
-    sel.innerHTML = '<option value="">Semua Kelas</option>';
+    if (!sel) return;
+    const placeholder = id==='pdfKelas' ? '-- Pilih Kelas --' : 'Semua Kelas';
+    sel.innerHTML = `<option value="">${placeholder}</option>`;
     Object.entries(db_kelas).sort((a,b)=>a[1].nama.localeCompare(b[1].nama))
       .forEach(([kid,k]) => sel.innerHTML += `<option value="${kid}">${k.nama}</option>`);
   });
@@ -1507,7 +1509,7 @@ function adminTab(name,btn) {
   document.querySelectorAll('#adminPage .nav-tab').forEach(b=>b.classList.remove('active'));
   document.getElementById(`atab-${name}`).style.display='';
   btn.classList.add('active');
-  if (name==='rekap') renderAdminRekap();
+  if (name==='rekap') { populateAdminFilters(); renderAdminRekap(); }
   if (name==='guru') renderGuruList();
   if (name==='kelas') { renderKelasList(); populateAdminFilters(); }
   if (name==='murid') { renderMuridList(); populateAdminFilters(); }
