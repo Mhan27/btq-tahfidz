@@ -562,8 +562,6 @@ tr:hover td{background:#f7fafb;}
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getDatabase, ref, set, get, remove, push }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
-import { getAuth, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword }
-  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 // ⚠️ GANTI dengan konfigurasi Firebase project BTQ Tahfidz Anda
 const firebaseConfig = {
@@ -578,9 +576,6 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
-const auth = getAuth(app);
-const secondaryApp = initializeApp(firebaseConfig, "secondary");
-const secondaryAuth = getAuth(secondaryApp);
 
 const ADMIN_USER = 'admin', ADMIN_PASS = 'admin123', SES_KEY = 'btq_ses';
 
@@ -615,30 +610,26 @@ async function doLogin() {
   const err = document.getElementById('loginErr');
   if (!u||!p) { err.textContent='Username dan password wajib diisi.'; return; }
 
+  if (u===ADMIN_USER && p===ADMIN_PASS) {
+    me=ADMIN_USER; localStorage.setItem(SES_KEY,ADMIN_USER);
+    showLoad('Memuat data...');
+    await loadAll(); hideLoad();
+    enterAdmin(); return;
+  }
+
   showLoad('Memeriksa akun...');
   try {
-    const email = `${u}@btq-tahfidz.local`;
-    await signInWithEmailAndPassword(auth, email, p);
-
-    await loadAll();
-    const profil = db_users[u];
-
-    if (u===ADMIN_USER || profil?.role==='admin') {
-      me=u; localStorage.setItem(SES_KEY,u);
-      hideLoad(); enterAdmin(); return;
+    const snap = await get(ref(db,`btq_users/${u}`));
+    if (!snap.exists()||snap.val().password!==p) {
+      hideLoad(); err.textContent='Username atau password salah.'; return;
     }
-    if (!profil) { hideLoad(); err.textContent='Akun tidak ditemukan di database.'; await signOut(auth); return; }
-    me=u; meNama=profil.nama;
+    db_users[u]=snap.val(); me=u; meNama=snap.val().nama;
     localStorage.setItem(SES_KEY,u);
-    hideLoad(); enterGuru();
-  } catch(e) {
-    hideLoad();
-    err.textContent='Username atau password salah.';
-  }
+    await loadAll(); hideLoad(); enterGuru();
+  } catch(e) { hideLoad(); err.textContent='Gagal terhubung ke server.'; }
 }
 
-async function doLogout() {
-  await signOut(auth);
+function doLogout() {
   localStorage.removeItem(SES_KEY); me=null; meNama='';
   db_users={}; db_kelas={}; db_murid={}; db_laporan={};
   ['guruPage','adminPage'].forEach(id=>document.getElementById(id).classList.remove('active'));
@@ -1236,16 +1227,8 @@ async function tambahGuru() {
   if (p.length<6){msg.style.color='var(--red)';msg.textContent='⚠️ Password minimal 6 karakter.';return;}
   if (u===ADMIN_USER||db_users[u]){msg.style.color='var(--red)';msg.textContent='⚠️ Username sudah digunakan.';return;}
   showLoad('Menambahkan guru...');
-  try {
-    await createUserWithEmailAndPassword(secondaryAuth, `${u}@btq-tahfidz.local`, p);
-    await signOut(secondaryAuth);
-  } catch(e) {
-    hideLoad();
-    msg.style.color='var(--red)';msg.textContent='⚠️ Gagal membuat akun. Password mungkin terlalu lemah atau username sudah dipakai.';
-    return;
-  }
-  await set(ref(db,`btq_users/${u}`),{nama,password:'',role:'guru'});
-  db_users[u]={nama,password:'',role:'guru'};
+  await set(ref(db,`btq_users/${u}`),{nama,password:p,role:'guru'});
+  db_users[u]={nama,password:p,role:'guru'};
   hideLoad();
   msg.style.color='var(--green)';msg.textContent=`✅ Guru "${nama}" berhasil ditambahkan.`;
   document.getElementById('addGuruNama').value='';
@@ -1552,9 +1535,12 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   if (s) {
     showLoad('Memuat sesi...');
     try {
-      await loadAll();
-      if (s===ADMIN_USER || db_users[s]?.role==='admin') { me=s; hideLoad(); enterAdmin(); return; }
-      if (db_users[s]) { me=s; meNama=db_users[s].nama; hideLoad(); enterGuru(); return; }
+      if (s===ADMIN_USER) { me=ADMIN_USER; await loadAll(); hideLoad(); enterAdmin(); return; }
+      const snap=await get(ref(db,`btq_users/${s}`));
+      if (snap.exists()) {
+        db_users[s]=snap.val(); me=s; meNama=snap.val().nama;
+        await loadAll(); hideLoad(); enterGuru(); return;
+      }
     } catch(e){}
     hideLoad(); localStorage.removeItem(SES_KEY);
   }
