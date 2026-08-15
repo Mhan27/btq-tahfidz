@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Migrasi Data: Realtime Database → Firestore</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:700px;margin:40px auto;padding:0 20px;background:#0d1117;color:#e6edf3;}
+h1{font-size:1.3rem;color:#58a6ff;}
+button{padding:10px 20px;background:#238636;color:#fff;border:none;border-radius:6px;font-size:1rem;cursor:pointer;margin:10px 0;}
+button:disabled{background:#555;cursor:not-allowed;}
+#log{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px;font-family:monospace;font-size:.85rem;white-space:pre-wrap;height:400px;overflow-y:auto;}
+.ok{color:#3fb950;} .err{color:#f85149;} .info{color:#8b949e;}
+</style>
+</head>
+<body>
+<h1>🔄 Migrasi Data: Realtime Database → Firestore</h1>
+<p>Halaman ini sekali pakai. Membaca semua data dari <b>Realtime Database</b> lama, lalu menyalinnya ke <b>Firestore</b> dengan ID dokumen yang sama persis (supaya relasi antar data tetap utuh).</p>
+<p><b>Syarat:</b> Realtime Database project Anda masih aktif (belum dihapus), dan Anda sudah login sebagai admin di Firebase Auth pada aplikasi utama (buka aplikasi utama dulu di tab lain dan login, baru buka halaman ini).</p>
+<button id="btnStart" onclick="mulai()">Mulai Migrasi</button>
+<div id="log">Menunggu perintah mulai...</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getDatabase, ref as rref, get as rget } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+import { getFirestore, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+// ⚠️ Samakan persis dengan config di index.html Anda, TAPI tambahkan lagi databaseURL
+// (baris databaseURL ini boleh dihapus lagi setelah migrasi selesai & RTDB dihapus)
+const firebaseConfig = {
+  apiKey: "AIzaSyBoKzAH8YVD80Djwl8lyCh4m3KpV_wvj5o",
+  authDomain: "laporan-btq-tahfidz.firebaseapp.com",
+  databaseURL: "https://laporan-btq-tahfidz-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "laporan-btq-tahfidz",
+  storageBucket: "laporan-btq-tahfidz.firebasestorage.app",
+  messagingSenderId: "156252618299",
+  appId: "1:156252618299:web:09c22f6c6317ed013ee61e"
+};
+
+const app = initializeApp(firebaseConfig);
+const rtdb = getDatabase(app);
+const fs = getFirestore(app);
+const auth = getAuth(app);
+
+const logEl = document.getElementById('log');
+const btn = document.getElementById('btnStart');
+function log(msg, cls='') {
+  const line = document.createElement('div');
+  if (cls) line.className = cls;
+  line.textContent = msg;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+let userReady = false;
+onAuthStateChanged(auth, (user) => {
+  userReady = !!user;
+  if (user) {
+    log(`✅ Terdeteksi login sebagai: ${user.email}`, 'ok');
+  } else {
+    log('⚠️ Belum login. Buka aplikasi utama di tab lain, login sebagai admin dulu, baru refresh halaman ini.', 'err');
+    btn.disabled = true;
+  }
+});
+
+const COLLECTIONS = ['btq_users', 'btq_kelas', 'btq_murid', 'btq_laporan'];
+
+window.mulai = async function() {
+  if (!userReady) { log('Belum login sebagai admin.', 'err'); return; }
+  btn.disabled = true;
+  logEl.innerHTML = '';
+  log('Mulai migrasi...', 'info');
+
+  let totalOK = 0, totalErr = 0;
+
+  for (const col of COLLECTIONS) {
+    log(`\n📂 Membaca node "${col}" dari Realtime Database...`, 'info');
+    try {
+      const snap = await rget(rref(rtdb, col));
+      if (!snap.exists()) {
+        log(`  (kosong, dilewati)`, 'info');
+        continue;
+      }
+      const data = snap.val();
+      const ids = Object.keys(data);
+      log(`  Ditemukan ${ids.length} dokumen. Menyalin ke Firestore...`);
+
+      for (const id of ids) {
+        try {
+          // Khusus btq_users: jangan bawa field password lama (sudah digantikan Firebase Auth)
+          const value = { ...data[id] };
+          if (col === 'btq_users' && 'password' in value) delete value.password;
+
+          await setDoc(doc(fs, col, id), value);
+          totalOK++;
+        } catch (e) {
+          log(`  ❌ Gagal salin ${col}/${id}: ${e.message}`, 'err');
+          totalErr++;
+        }
+      }
+      log(`  ✅ Selesai: ${ids.length} dokumen di "${col}"`, 'ok');
+    } catch (e) {
+      log(`  ❌ Gagal membaca "${col}": ${e.message}`, 'err');
+      totalErr++;
+    }
+  }
+
+  log(`\n=== SELESAI ===`, 'info');
+  log(`Berhasil disalin: ${totalOK}`, 'ok');
+  if (totalErr) log(`Gagal: ${totalErr}`, 'err');
+  log(`\nSilakan cek data di Firestore Console untuk memastikan semua benar,`, 'info');
+  log(`lalu buka aplikasi utama dan login untuk verifikasi akhir.`, 'info');
+  btn.disabled = false;
+  btn.textContent = 'Jalankan Ulang';
+};
+</script>
+</body>
+</html>
